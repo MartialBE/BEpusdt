@@ -41,7 +41,6 @@ jobs:
           context: .
           platforms: |
             linux/amd64
-            linux/arm64
           push: true
           build-args: |
             VERSION=${{ env.VERSION_TAG }}
