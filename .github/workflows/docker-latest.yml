@@ -46,5 +46,5 @@ jobs:
           build-args: |
             VERSION=${{ env.VERSION_TAG }}
           tags: |
-            ghcr.io/${{ github.repository_owner }}/bepusdt:latest
-            ghcr.io/${{ github.repository_owner }}/bepusdt:${{ env.APP_VERSION }}
+            ghcr.io/${{ vars.DOCKER_HUB_USERNAME }}/bepusdt:latest
+            ghcr.io/${{ vars.DOCKER_HUB_USERNAME }}/bepusdt:${{ env.APP_VERSION }}
