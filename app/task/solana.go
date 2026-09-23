@@ -144,10 +144,10 @@ func (s *solana) slotDispatch(ctx context.Context) {
 
 func (s *solana) slotParse(n any) {
 	slot := n.(int)
-	post := []byte(fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"getBlock","params":[%d,{"encoding":"json","maxSupportedTransactionVersion":0,"transactionDetails":"full","rewards":false}]}`, slot))
+	// maxSupportedTransactionVersion 必须为 1，为 0 时节点会因区块内存在 v1 交易而拒绝整块(-32015)
+	post := []byte(fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"getBlock","params":[%d,{"encoding":"json","maxSupportedTransactionVersion":1,"transactionDetails":"full","rewards":false}]}`, slot))
 	network := conf.Solana
 
-	conf.RecordSuccess(network, cast.ToString(slot))
 	resp, err := s.client.Post(model.Endpoint(conf.Solana), "application/json", bytes.NewBuffer(post))
 	if err != nil {
 		conf.RecordFailure(network)
@@ -173,7 +173,27 @@ func (s *solana) slotParse(n any) {
 		return
 	}
 
+	// 检查 JSON-RPC 业务错误：HTTP 200 不代表区块获取成功
+	if e := gjson.GetBytes(body, "error"); e.Exists() {
+		conf.RecordFailure(network)
+		s.slotQueue.In <- slot
+		log.Task.Warn(fmt.Sprintf("slotParse 获取区块失败(Solana) %d：%s", slot, e.String()))
+
+		return
+	}
+
+	conf.RecordSuccess(network, cast.ToString(slot))
+
+	if result := s.parseBlock(body, slot); len(result) > 0 {
+		transferQueue.In <- result
+	}
+
+	log.Task.Info(fmt.Sprintf("区块扫描完成(Solana) %d 成功率：%s", slot, conf.GetSuccessRate(network)))
+}
+
+func (s *solana) parseBlock(body []byte, slot int) []transfer {
 	timestamp := time.Unix(gjson.GetBytes(body, "result.blockTime").Int(), 0)
+	all := make([]transfer, 0)
 
 	for _, trans := range gjson.GetBytes(body, "result.transactions").Array() {
 		hash := trans.Get("transaction.signatures.0").String()
@@ -263,11 +283,11 @@ func (s *solana) slotParse(n any) {
 		}
 
 		if len(result) > 0 {
-			transferQueue.In <- result
+			all = append(all, result...)
 		}
 	}
 
-	log.Task.Info(fmt.Sprintf("区块扫描完成(Solana) %d 成功率：%s", slot, conf.GetSuccessRate(network)))
+	return all
 }
 
 func (s *solana) parseTransfer(instr gjson.Result, accountKeys []string, tokenAccountMap map[string]solanaTokenOwner) transfer {
